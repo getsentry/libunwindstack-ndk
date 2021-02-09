@@ -15,7 +15,7 @@ set(ANDROID_SOURCES
     ${UNWINDSTACK_ROOT}/android-base/file.h
     ${UNWINDSTACK_ROOT}/android-base/log_main.h
     ${UNWINDSTACK_ROOT}/android-base/logging_splitters.h
-    ${UNWINDSTACK_ROOT}/android-base/logging.cpp
+    #${UNWINDSTACK_ROOT}/android-base/logging.cpp
     ${UNWINDSTACK_ROOT}/android-base/logging.h
     ${UNWINDSTACK_ROOT}/android-base/macros.h
     ${UNWINDSTACK_ROOT}/android-base/off64_t.h

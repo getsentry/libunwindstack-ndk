@@ -132,82 +132,6 @@ std::string GetSystemTempDir() {
 
 }  // namespace
 
-TemporaryFile::TemporaryFile() {
-  init(GetSystemTempDir());
-}
-
-TemporaryFile::TemporaryFile(const std::string& tmp_dir) {
-  init(tmp_dir);
-}
-
-TemporaryFile::~TemporaryFile() {
-  if (fd != -1) {
-    close(fd);
-  }
-  if (remove_file_) {
-    unlink(path);
-  }
-}
-
-int TemporaryFile::release() {
-  int result = fd;
-  fd = -1;
-  return result;
-}
-
-void TemporaryFile::init(const std::string& tmp_dir) {
-  snprintf(path, sizeof(path), "%s%cTemporaryFile-XXXXXX", tmp_dir.c_str(), OS_PATH_SEPARATOR);
-#if defined(_WIN32)
-  fd = mkstemp(path, sizeof(path));
-#else
-  fd = mkstemp(path);
-#endif
-}
-
-TemporaryDir::TemporaryDir() {
-  init(GetSystemTempDir());
-}
-
-TemporaryDir::~TemporaryDir() {
-  if (!remove_dir_and_contents_) return;
-
-  auto callback = [](const char* child, const struct stat*, int file_type, struct FTW*) -> int {
-    switch (file_type) {
-      case FTW_D:
-      case FTW_DP:
-      case FTW_DNR:
-        if (rmdir(child) == -1) {
-          PLOG(ERROR) << "rmdir " << child;
-        }
-        break;
-      case FTW_NS:
-      default:
-        if (rmdir(child) != -1) break;
-        // FALLTHRU (for gcc, lint, pcc, etc; and following for clang)
-        FALLTHROUGH_INTENDED;
-      case FTW_F:
-      case FTW_SL:
-      case FTW_SLN:
-        if (unlink(child) == -1) {
-          PLOG(ERROR) << "unlink " << child;
-        }
-        break;
-    }
-    return 0;
-  };
-
-  nftw(path, callback, 128, FTW_DEPTH | FTW_MOUNT | FTW_PHYS);
-}
-
-bool TemporaryDir::init(const std::string& tmp_dir) {
-  snprintf(path, sizeof(path), "%s%cTemporaryDir-XXXXXX", tmp_dir.c_str(), OS_PATH_SEPARATOR);
-#if defined(_WIN32)
-  return (mkdtemp(path, sizeof(path)) != nullptr);
-#else
-  return (mkdtemp(path) != nullptr);
-#endif
-}
-
 namespace android {
 namespace base {
 
@@ -256,55 +180,6 @@ bool WriteStringToFd(const std::string& content, borrowed_fd fd) {
     left -= n;
   }
   return true;
-}
-
-static bool CleanUpAfterFailedWrite(const std::string& path) {
-  // Something went wrong. Let's not leave a corrupt file lying around.
-  int saved_errno = errno;
-  unlink(path.c_str());
-  errno = saved_errno;
-  return false;
-}
-
-#if !defined(_WIN32)
-bool WriteStringToFile(const std::string& content, const std::string& path,
-                       mode_t mode, uid_t owner, gid_t group,
-                       bool follow_symlinks) {
-  int flags = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_BINARY |
-              (follow_symlinks ? 0 : O_NOFOLLOW);
-  android::base::unique_fd fd(TEMP_FAILURE_RETRY(open(path.c_str(), flags, mode)));
-  if (fd == -1) {
-    PLOG(ERROR) << "android::WriteStringToFile open failed";
-    return false;
-  }
-
-  // We do an explicit fchmod here because we assume that the caller really
-  // meant what they said and doesn't want the umask-influenced mode.
-  if (fchmod(fd, mode) == -1) {
-    PLOG(ERROR) << "android::WriteStringToFile fchmod failed";
-    return CleanUpAfterFailedWrite(path);
-  }
-  if (fchown(fd, owner, group) == -1) {
-    PLOG(ERROR) << "android::WriteStringToFile fchown failed";
-    return CleanUpAfterFailedWrite(path);
-  }
-  if (!WriteStringToFd(content, fd)) {
-    PLOG(ERROR) << "android::WriteStringToFile write failed";
-    return CleanUpAfterFailedWrite(path);
-  }
-  return true;
-}
-#endif
-
-bool WriteStringToFile(const std::string& content, const std::string& path,
-                       bool follow_symlinks) {
-  int flags = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_BINARY |
-              (follow_symlinks ? 0 : O_NOFOLLOW);
-  android::base::unique_fd fd(TEMP_FAILURE_RETRY(open(path.c_str(), flags, 0666)));
-  if (fd == -1) {
-    return false;
-  }
-  return WriteStringToFd(content, fd) || CleanUpAfterFailedWrite(path);
 }
 
 bool ReadFully(borrowed_fd fd, void* data, size_t byte_count) {

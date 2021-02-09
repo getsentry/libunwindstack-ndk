@@ -49,7 +49,6 @@ ElfInterface::~ElfInterface() {
   }
 }
 
-#ifdef WITH_DEBUG_FRAME
 bool ElfInterface::IsValidPc(uint64_t pc) {
   if (!pt_loads_.empty()) {
     for (auto& entry : pt_loads_) {
@@ -74,6 +73,7 @@ bool ElfInterface::IsValidPc(uint64_t pc) {
   return false;
 }
 
+#ifdef WITH_DEBUG_FRAME
 Memory* ElfInterface::CreateGnuDebugdataMemory() {
   if (gnu_debugdata_offset_ == 0 || gnu_debugdata_size_ == 0) {
     return nullptr;
