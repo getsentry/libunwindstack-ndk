@@ -11,17 +11,22 @@ include_directories(${UNWINDSTACK_ROOT} ${UNWINDSTACK_ROOT}/include)
 
 set(ANDROID_SOURCES
     ${UNWINDSTACK_ROOT}/android-base/errno_restorer.h
+    ${UNWINDSTACK_ROOT}/android-base/file.cpp
     ${UNWINDSTACK_ROOT}/android-base/file.h
     ${UNWINDSTACK_ROOT}/android-base/log_main.h
+    ${UNWINDSTACK_ROOT}/android-base/logging_splitters.h
+    ${UNWINDSTACK_ROOT}/android-base/logging.cpp
     ${UNWINDSTACK_ROOT}/android-base/logging.h
     ${UNWINDSTACK_ROOT}/android-base/macros.h
     ${UNWINDSTACK_ROOT}/android-base/off64_t.h
     ${UNWINDSTACK_ROOT}/android-base/parseint.h
     ${UNWINDSTACK_ROOT}/android-base/stringprintf.cpp
     ${UNWINDSTACK_ROOT}/android-base/stringprintf.h
+    ${UNWINDSTACK_ROOT}/android-base/strings.cpp
     ${UNWINDSTACK_ROOT}/android-base/strings.h
     ${UNWINDSTACK_ROOT}/android-base/threads.h
     ${UNWINDSTACK_ROOT}/android-base/unique_fd.h
+    ${UNWINDSTACK_ROOT}/android-base/utf8.h
     ${UNWINDSTACK_ROOT}/procinfo/process_map.h
     ${UNWINDSTACK_ROOT}/procinfo/process.cpp
     ${UNWINDSTACK_ROOT}/procinfo/process.h
@@ -60,7 +65,7 @@ set(UNWINDSTACK_SOURCES
     ${UNWINDSTACK_ROOT}/MemoryCache.h
     ${UNWINDSTACK_ROOT}/MemoryFileAtOffset.h
     ${UNWINDSTACK_ROOT}/MemoryLocal.h
-    #${UNWINDSTACK_ROOT}/MemoryMte.cpp
+    ${UNWINDSTACK_ROOT}/MemoryMte.cpp
     ${UNWINDSTACK_ROOT}/MemoryOffline.h
     ${UNWINDSTACK_ROOT}/MemoryOfflineBuffer.h
     ${UNWINDSTACK_ROOT}/MemoryRange.h

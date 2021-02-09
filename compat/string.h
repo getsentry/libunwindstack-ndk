@@ -4,7 +4,7 @@
 
 #include <string.h>
 
-const char *
+static const char *
 basename(const char *s)
 {
     const char *c = strrchr(s, '/');

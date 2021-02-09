@@ -54,13 +54,16 @@ bool Elf::Init() {
   valid_ = interface_->Init(&load_bias_);
   if (valid_) {
     interface_->InitHeaders();
+#ifdef WITH_DEBUG_FRAME
     InitGnuDebugdata();
+#endif
   } else {
     interface_.reset(nullptr);
   }
   return valid_;
 }
 
+#ifdef WITH_DEBUG_FRAME
 // It is expensive to initialize the .gnu_debugdata section. Provide a method
 // to initialize this data separately.
 void Elf::InitGnuDebugdata() {
@@ -87,6 +90,7 @@ void Elf::InitGnuDebugdata() {
     gnu_debugdata_interface_.reset(nullptr);
   }
 }
+#endif
 
 void Elf::Invalidate() {
   interface_.reset(nullptr);
