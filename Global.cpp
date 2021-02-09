@@ -48,7 +48,7 @@ bool Global::Searchable(const std::string& name) {
     return false;
   }
 
-  const char* base_name = basename(name.c_str());
+  const char *base_name = _unwinder_basename(name.c_str());
   for (const std::string& lib : search_libs_) {
     if (base_name == lib) {
       return true;

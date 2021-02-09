@@ -5,7 +5,7 @@
 #include <string.h>
 
 static const char *
-basename(const char *s)
+_unwinder_basename(const char *s)
 {
     const char *c = strrchr(s, '/');
     return c ? c + 1 : s;
