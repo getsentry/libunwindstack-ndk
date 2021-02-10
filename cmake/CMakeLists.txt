@@ -14,8 +14,6 @@ set(ANDROID_SOURCES
     ${UNWINDSTACK_ROOT}/android-base/file.cpp
     ${UNWINDSTACK_ROOT}/android-base/file.h
     ${UNWINDSTACK_ROOT}/android-base/log_main.h
-    ${UNWINDSTACK_ROOT}/android-base/logging_splitters.h
-    #${UNWINDSTACK_ROOT}/android-base/logging.cpp
     ${UNWINDSTACK_ROOT}/android-base/logging.h
     ${UNWINDSTACK_ROOT}/android-base/macros.h
     ${UNWINDSTACK_ROOT}/android-base/off64_t.h
@@ -28,7 +26,6 @@ set(ANDROID_SOURCES
     ${UNWINDSTACK_ROOT}/android-base/unique_fd.h
     ${UNWINDSTACK_ROOT}/android-base/utf8.h
     ${UNWINDSTACK_ROOT}/procinfo/process_map.h
-    ${UNWINDSTACK_ROOT}/procinfo/process.cpp
     ${UNWINDSTACK_ROOT}/procinfo/process.h
 )
 
@@ -104,3 +101,7 @@ add_library(unwindstack STATIC
     ${UNWINDSTACK_SOURCES_GETREG}
 )
 target_link_libraries(unwindstack log)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(unwindstack PRIVATE $<BUILD_INTERFACE:-Wno-unknown-attributes>)
+endif()
