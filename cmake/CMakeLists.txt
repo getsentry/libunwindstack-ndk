@@ -1,10 +1,6 @@
 project(unwindstack LANGUAGES C CXX ASM)
 cmake_minimum_required(VERSION 3.10)
 
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 17)
-endif()
-
 set(UNWINDSTACK_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../)
 
 include_directories(${UNWINDSTACK_ROOT} ${UNWINDSTACK_ROOT}/include)
@@ -101,6 +97,7 @@ add_library(unwindstack STATIC
     ${UNWINDSTACK_SOURCES_GETREG}
 )
 target_link_libraries(unwindstack log)
+set_property(TARGET unwindstack PROPERTY CXX_STANDARD 17)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(unwindstack PRIVATE $<BUILD_INTERFACE:-Wno-unknown-attributes>)
