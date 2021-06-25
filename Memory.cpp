@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+#ifndef _GNU_SOURCE
+#    define _GNU_SOURCE 1
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -26,16 +29,6 @@
 #include <unistd.h>
 #include "unistdfix.h"
 #include <sys/syscall.h>
-#ifndef __NR_process_vm_readv
-#ifdef __i386__
-#define __NR_process_vm_readv 347
-#elif defined(__ILP32__)
-#define __X32_SYSCALL_BIT 0x40000000
-#define __NR_process_vm_readv (__X32_SYSCALL_BIT + 539)
-#else
-#define __NR_process_vm_readv 310
-#endif
-#endif
 
 #include <algorithm>
 #include <memory>
@@ -53,6 +46,19 @@
 #include "MemoryOfflineBuffer.h"
 #include "MemoryRange.h"
 #include "MemoryRemote.h"
+
+#ifdef __ANDROID_API__
+#    if __ANDROID_API__ < 23
+static ssize_t
+process_vm_readv(pid_t __pid, const struct iovec *__local_iov,
+    unsigned long __local_iov_count, const struct iovec *__remote_iov,
+    unsigned long __remote_iov_count, unsigned long __flags)
+{
+    return syscall(__NR_process_vm_readv, __pid, __local_iov, __local_iov_count,
+        __remote_iov, __remote_iov_count, __flags);
+}
+#    endif
+#endif
 
 namespace unwindstack {
 
@@ -103,7 +109,7 @@ static size_t ProcessVmRead(pid_t pid, uint64_t remote_src, void* dst, size_t le
       ++iovecs_used;
     }
 
-    ssize_t rc = syscall(__NR_process_vm_readv, pid, &dst_iov, 1, src_iovs, iovecs_used, 0);
+    ssize_t rc = process_vm_readv(pid, &dst_iov, 1, src_iovs, iovecs_used, 0);
     if (rc == -1) {
       return total_read;
     }
@@ -344,14 +350,7 @@ size_t MemoryRemote::Read(uint64_t addr, void* dst, size_t size) {
 }
 
 size_t MemoryLocal::Read(uint64_t addr, void* dst, size_t size) {
-  // Prefer process_vm_read, try it first. If it doesn't work, use direct
-  // memory read.
-  size_t result = ProcessVmRead(getpid(), addr, dst, size);
-  if (!result && size) {
-    memcpy(dst, (void *)addr, size);
-    result = size;
-  }
-  return result;
+  return ProcessVmRead(getpid(), addr, dst, size);
 }
 
 MemoryRange::MemoryRange(const std::shared_ptr<Memory>& memory, uint64_t begin, uint64_t length,
