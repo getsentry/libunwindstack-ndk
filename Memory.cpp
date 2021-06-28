@@ -350,7 +350,17 @@ size_t MemoryRemote::Read(uint64_t addr, void* dst, size_t size) {
 }
 
 size_t MemoryLocal::Read(uint64_t addr, void* dst, size_t size) {
-  return ProcessVmRead(getpid(), addr, dst, size);
+    errno = 0;
+    size_t rv = ProcessVmRead(getpid(), addr, dst, size);
+    // The syscall is only available in Linux 3.2, meaning Android 17.
+    // If that is the case, just fall back to an unsafe memcpy.
+#if __ANDROID_API__ < 17
+    if (rv != size && errno == EINVAL) {
+        memcpy(dst, (void*)addr, size);
+        rv = size;
+    }
+#endif
+    return rv;
 }
 
 MemoryRange::MemoryRange(const std::shared_ptr<Memory>& memory, uint64_t begin, uint64_t length,
