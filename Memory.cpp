@@ -47,8 +47,7 @@
 #include "MemoryRange.h"
 #include "MemoryRemote.h"
 
-#ifdef __ANDROID_API__
-#    if __ANDROID_API__ < 23
+#if defined(__ANDROID_API__) && __ANDROID_API__ < 23
 static ssize_t
 process_vm_readv(pid_t __pid, const struct iovec *__local_iov,
     unsigned long __local_iov_count, const struct iovec *__remote_iov,
@@ -57,7 +56,6 @@ process_vm_readv(pid_t __pid, const struct iovec *__local_iov,
     return syscall(__NR_process_vm_readv, __pid, __local_iov, __local_iov_count,
         __remote_iov, __remote_iov_count, __flags);
 }
-#    endif
 #endif
 
 namespace unwindstack {
@@ -354,7 +352,7 @@ size_t MemoryLocal::Read(uint64_t addr, void* dst, size_t size) {
     size_t rv = ProcessVmRead(getpid(), addr, dst, size);
     // The syscall is only available in Linux 3.2, meaning Android 17.
     // If that is the case, just fall back to an unsafe memcpy.
-#if __ANDROID_API__ < 17
+#if defined(__ANDROID_API__) && __ANDROID_API__ < 17
     if (rv != size && errno == EINVAL) {
         memcpy(dst, (void*)addr, size);
         rv = size;
