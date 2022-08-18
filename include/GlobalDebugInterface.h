@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2021 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,21 +17,26 @@
 #pragma once
 
 #include <stdint.h>
-
 #include <memory>
-#include <vector>
 
-#include <GlobalDebugInterface.h>
+#include <unwindstack/Maps.h>
 
 namespace unwindstack {
 
-enum ArchEnum : uint8_t;
-class DexFile;
-class Memory;
+// Base class for architecture specific implementations (see "GlobalDebugImpl.h").
+// It provides access to JITed ELF files, and loaded DEX files in the ART runtime.
+template <typename Symfile>
+class GlobalDebugInterface {
+ public:
+  virtual ~GlobalDebugInterface() {}
 
-using DexFiles = GlobalDebugInterface<DexFile>;
+  virtual bool GetFunctionName(Maps* maps, uint64_t pc, SharedString* name, uint64_t* offset) = 0;
 
-std::unique_ptr<DexFiles> CreateDexFiles(ArchEnum arch, std::shared_ptr<Memory>& memory,
-                                         std::vector<std::string> search_libs = {});
+  virtual Symfile* Find(Maps* maps, uint64_t pc) = 0;
+
+ protected:
+  bool Load(Maps* maps, std::shared_ptr<Memory>& memory, uint64_t addr, uint64_t size,
+            /*out*/ std::shared_ptr<Symfile>& dex);
+};
 
 }  // namespace unwindstack
