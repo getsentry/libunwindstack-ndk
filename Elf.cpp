@@ -34,8 +34,6 @@
 #include <unwindstack/Regs.h>
 #include <unwindstack/SharedString.h>
 
-#include <android-base/stringprintf.h>
-
 #include "ElfInterfaceArm.h"
 #include "Symbols.h"
 
