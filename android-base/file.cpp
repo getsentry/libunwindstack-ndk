@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -132,6 +133,82 @@ std::string GetSystemTempDir() {
 
 }  // namespace
 
+TemporaryFile::TemporaryFile() {
+  init(GetSystemTempDir());
+}
+
+TemporaryFile::TemporaryFile(const std::string& tmp_dir) {
+  init(tmp_dir);
+}
+
+TemporaryFile::~TemporaryFile() {
+  if (fd != -1) {
+    close(fd);
+  }
+  if (remove_file_) {
+    unlink(path);
+  }
+}
+
+int TemporaryFile::release() {
+  int result = fd;
+  fd = -1;
+  return result;
+}
+
+void TemporaryFile::init(const std::string& tmp_dir) {
+  snprintf(path, sizeof(path), "%s%cTemporaryFile-XXXXXX", tmp_dir.c_str(), OS_PATH_SEPARATOR);
+#if defined(_WIN32)
+  fd = mkstemp(path, sizeof(path));
+#else
+  fd = mkstemp(path);
+#endif
+}
+
+TemporaryDir::TemporaryDir() {
+  init(GetSystemTempDir());
+}
+
+TemporaryDir::~TemporaryDir() {
+  if (!remove_dir_and_contents_) return;
+
+  auto callback = [](const char* child, const struct stat*, int file_type, struct FTW*) -> int {
+    switch (file_type) {
+      case FTW_D:
+      case FTW_DP:
+      case FTW_DNR:
+        if (rmdir(child) == -1) {
+          PLOG(ERROR) << "rmdir " << child;
+        }
+        break;
+      case FTW_NS:
+      default:
+        if (rmdir(child) != -1) break;
+        // FALLTHRU (for gcc, lint, pcc, etc; and following for clang)
+        FALLTHROUGH_INTENDED;
+      case FTW_F:
+      case FTW_SL:
+      case FTW_SLN:
+        if (unlink(child) == -1) {
+          PLOG(ERROR) << "unlink " << child;
+        }
+        break;
+    }
+    return 0;
+  };
+
+  nftw(path, callback, 128, FTW_DEPTH | FTW_MOUNT | FTW_PHYS);
+}
+
+bool TemporaryDir::init(const std::string& tmp_dir) {
+  snprintf(path, sizeof(path), "%s%cTemporaryDir-XXXXXX", tmp_dir.c_str(), OS_PATH_SEPARATOR);
+#if defined(_WIN32)
+  return (mkdtemp(path, sizeof(path)) != nullptr);
+#else
+  return (mkdtemp(path) != nullptr);
+#endif
+}
+
 namespace android {
 namespace base {
 
@@ -149,7 +226,7 @@ bool ReadFdToString(borrowed_fd fd, std::string* content) {
     content->reserve(sb.st_size);
   }
 
-  char buf[BUFSIZ] __attribute__((__uninitialized__));
+  char buf[4096] __attribute__((__uninitialized__));
   ssize_t n;
   while ((n = TEMP_FAILURE_RETRY(read(fd.get(), &buf[0], sizeof(buf)))) > 0) {
     content->append(buf, n);
@@ -168,7 +245,7 @@ bool ReadFileToString(const std::string& path, std::string* content, bool follow
   return ReadFdToString(fd, content);
 }
 
-bool WriteStringToFd(const std::string& content, borrowed_fd fd) {
+bool WriteStringToFd(std::string_view content, borrowed_fd fd) {
   const char* p = content.data();
   size_t left = content.size();
   while (left > 0) {
@@ -180,6 +257,55 @@ bool WriteStringToFd(const std::string& content, borrowed_fd fd) {
     left -= n;
   }
   return true;
+}
+
+static bool CleanUpAfterFailedWrite(const std::string& path) {
+  // Something went wrong. Let's not leave a corrupt file lying around.
+  int saved_errno = errno;
+  unlink(path.c_str());
+  errno = saved_errno;
+  return false;
+}
+
+#if !defined(_WIN32)
+bool WriteStringToFile(const std::string& content, const std::string& path,
+                       mode_t mode, uid_t owner, gid_t group,
+                       bool follow_symlinks) {
+  int flags = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_BINARY |
+              (follow_symlinks ? 0 : O_NOFOLLOW);
+  android::base::unique_fd fd(TEMP_FAILURE_RETRY(open(path.c_str(), flags, mode)));
+  if (fd == -1) {
+    PLOG(ERROR) << "android::WriteStringToFile open failed";
+    return false;
+  }
+
+  // We do an explicit fchmod here because we assume that the caller really
+  // meant what they said and doesn't want the umask-influenced mode.
+  if (fchmod(fd, mode) == -1) {
+    PLOG(ERROR) << "android::WriteStringToFile fchmod failed";
+    return CleanUpAfterFailedWrite(path);
+  }
+  if (fchown(fd, owner, group) == -1) {
+    PLOG(ERROR) << "android::WriteStringToFile fchown failed";
+    return CleanUpAfterFailedWrite(path);
+  }
+  if (!WriteStringToFd(content, fd)) {
+    PLOG(ERROR) << "android::WriteStringToFile write failed";
+    return CleanUpAfterFailedWrite(path);
+  }
+  return true;
+}
+#endif
+
+bool WriteStringToFile(const std::string& content, const std::string& path,
+                       bool follow_symlinks) {
+  int flags = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_BINARY |
+              (follow_symlinks ? 0 : O_NOFOLLOW);
+  android::base::unique_fd fd(TEMP_FAILURE_RETRY(open(path.c_str(), flags, 0666)));
+  if (fd == -1) {
+    return false;
+  }
+  return WriteStringToFd(content, fd) || CleanUpAfterFailedWrite(path);
 }
 
 bool ReadFully(borrowed_fd fd, void* data, size_t byte_count) {
@@ -211,6 +337,21 @@ static ssize_t pread(borrowed_fd fd, void* data, size_t byte_count, off64_t offs
   }
   return static_cast<ssize_t>(bytes_read);
 }
+
+static ssize_t pwrite(borrowed_fd fd, const void* data, size_t byte_count, off64_t offset) {
+  DWORD bytes_written;
+  OVERLAPPED overlapped;
+  memset(&overlapped, 0, sizeof(OVERLAPPED));
+  overlapped.Offset = static_cast<DWORD>(offset);
+  overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);
+  if (!WriteFile(reinterpret_cast<HANDLE>(_get_osfhandle(fd.get())), data,
+                 static_cast<DWORD>(byte_count), &bytes_written, &overlapped)) {
+    // In case someone tries to read errno (since this is masquerading as a POSIX call)
+    errno = EIO;
+    return -1;
+  }
+  return static_cast<ssize_t>(bytes_written);
+}
 #endif
 
 bool ReadFullyAtOffset(borrowed_fd fd, void* data, size_t byte_count, off64_t offset) {
@@ -220,6 +361,19 @@ bool ReadFullyAtOffset(borrowed_fd fd, void* data, size_t byte_count, off64_t of
     if (n <= 0) return false;
     p += n;
     byte_count -= n;
+    offset += n;
+  }
+  return true;
+}
+
+bool WriteFullyAtOffset(borrowed_fd fd, const void* data, size_t byte_count, off64_t offset) {
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(data);
+  size_t remaining = byte_count;
+  while (remaining > 0) {
+    ssize_t n = TEMP_FAILURE_RETRY(pwrite(fd.get(), p, remaining, offset));
+    if (n == -1) return false;
+    p += n;
+    remaining -= n;
     offset += n;
   }
   return true;
@@ -334,6 +488,8 @@ std::string GetExecutablePath() {
   if (result == 0 || result == sizeof(path) - 1) return "";
   path[PATH_MAX - 1] = 0;
   return path;
+#elif defined(__EMSCRIPTEN__)
+  abort();
 #else
 #error unknown OS
 #endif
@@ -343,18 +499,19 @@ std::string GetExecutableDirectory() {
   return Dirname(GetExecutablePath());
 }
 
-std::string Basename(const std::string& path) {
+#if defined(_WIN32)
+std::string Basename(std::string_view path) {
+  // TODO: how much of this is actually necessary for mingw?
+
   // Copy path because basename may modify the string passed in.
   std::string result(path);
 
-#if !defined(__BIONIC__)
   // Use lock because basename() may write to a process global and return a
   // pointer to that. Note that this locking strategy only works if all other
   // callers to basename in the process also grab this same lock, but its
   // better than nothing.  Bionic's basename returns a thread-local buffer.
   static std::mutex& basename_lock = *new std::mutex();
   std::lock_guard<std::mutex> lock(basename_lock);
-#endif
 
   // Note that if std::string uses copy-on-write strings, &str[0] will cause
   // the copy to be made, so there is no chance of us accidentally writing to
@@ -367,19 +524,79 @@ std::string Basename(const std::string& path) {
 
   return result;
 }
+#else
+// Copied from bionic so that Basename() below can be portable and thread-safe.
+static int _basename_r(const char* path, size_t path_size, char* buffer, size_t buffer_size) {
+  const char* startp = nullptr;
+  const char* endp = nullptr;
+  int len;
+  int result;
 
-std::string Dirname(const std::string& path) {
+  // Empty or NULL string gets treated as ".".
+  if (path == nullptr || path_size == 0) {
+    startp = ".";
+    len = 1;
+    goto Exit;
+  }
+
+  // Strip trailing slashes.
+  endp = path + path_size - 1;
+  while (endp > path && *endp == '/') {
+    endp--;
+  }
+
+  // All slashes becomes "/".
+  if (endp == path && *endp == '/') {
+    startp = "/";
+    len = 1;
+    goto Exit;
+  }
+
+  // Find the start of the base.
+  startp = endp;
+  while (startp > path && *(startp - 1) != '/') {
+    startp--;
+  }
+
+  len = endp - startp +1;
+
+ Exit:
+  result = len;
+  if (buffer == nullptr) {
+    return result;
+  }
+  if (len > static_cast<int>(buffer_size) - 1) {
+    len = buffer_size - 1;
+    result = -1;
+    errno = ERANGE;
+  }
+
+  if (len >= 0) {
+    memcpy(buffer, startp, len);
+    buffer[len] = 0;
+  }
+  return result;
+}
+std::string Basename(std::string_view path) {
+  char buf[PATH_MAX] __attribute__((__uninitialized__));
+  const auto size = _basename_r(path.data(), path.size(), buf, sizeof(buf));
+  return size > 0 ? std::string(buf, size) : std::string();
+}
+#endif
+
+#if defined(_WIN32)
+std::string Dirname(std::string_view path) {
+  // TODO: how much of this is actually necessary for mingw?
+
   // Copy path because dirname may modify the string passed in.
   std::string result(path);
 
-#if !defined(__BIONIC__)
   // Use lock because dirname() may write to a process global and return a
   // pointer to that. Note that this locking strategy only works if all other
   // callers to dirname in the process also grab this same lock, but its
   // better than nothing.  Bionic's dirname returns a thread-local buffer.
   static std::mutex& dirname_lock = *new std::mutex();
   std::lock_guard<std::mutex> lock(dirname_lock);
-#endif
 
   // Note that if std::string uses copy-on-write strings, &str[0] will cause
   // the copy to be made, so there is no chance of us accidentally writing to
@@ -392,6 +609,72 @@ std::string Dirname(const std::string& path) {
 
   return result;
 }
+#else
+// Copied from bionic so that Dirname() below can be portable and thread-safe.
+static int _dirname_r(const char* path, size_t path_size, char* buffer, size_t buffer_size) {
+  const char* endp = nullptr;
+  int len;
+  int result;
+
+  // Empty or NULL string gets treated as ".".
+  if (path == nullptr || path_size == 0) {
+    path = ".";
+    len = 1;
+    goto Exit;
+  }
+
+  // Strip trailing slashes.
+  endp = path + path_size - 1;
+  while (endp > path && *endp == '/') {
+    endp--;
+  }
+
+  // Find the start of the dir.
+  while (endp > path && *endp != '/') {
+    endp--;
+  }
+
+  // Either the dir is "/" or there are no slashes.
+  if (endp == path) {
+    path = (*endp == '/') ? "/" : ".";
+    len = 1;
+    goto Exit;
+  }
+
+  do {
+    endp--;
+  } while (endp > path && *endp == '/');
+
+  len = endp - path + 1;
+
+ Exit:
+  result = len;
+  if (len + 1 > MAXPATHLEN) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  if (buffer == nullptr) {
+    return result;
+  }
+
+  if (len > static_cast<int>(buffer_size) - 1) {
+    len = buffer_size - 1;
+    result = -1;
+    errno = ERANGE;
+  }
+
+  if (len >= 0) {
+    memcpy(buffer, path, len);
+    buffer[len] = 0;
+  }
+  return result;
+}
+std::string Dirname(std::string_view path) {
+  char buf[PATH_MAX] __attribute__((__uninitialized__));
+  const auto size = _dirname_r(path.data(), path.size(), buf, sizeof(buf));
+  return size > 0 ? std::string(buf, size) : std::string();
+}
+#endif
 
 }  // namespace base
 }  // namespace android

@@ -131,7 +131,7 @@ void UNUSED(const T&...) {
 // In either case this macro has no effect on runtime behavior and performance
 // of code.
 #ifndef FALLTHROUGH_INTENDED
-#define FALLTHROUGH_INTENDED [[clang::fallthrough]]  // NOLINT
+#define FALLTHROUGH_INTENDED [[fallthrough]]  // NOLINT
 #endif
 
 // Current ABI string
