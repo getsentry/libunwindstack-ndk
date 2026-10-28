@@ -67,6 +67,15 @@ static uint64_t strip_pac(uint64_t pc, uint64_t mask) {
     pc = __bionic_clear_pac_bits(pc);
 #endif
 #endif // SENTRY_REMOVED
+#ifndef SENTRY_ADDED
+#if defined(__aarch64__)
+    // __bionic_clear_pac_bits() is not in the NDK. Use xpaclri like it does,
+    // spelled as hint #7 for assemblers without Armv8.3-A support.
+    register uint64_t x30 __asm("x30") = pc;
+    asm("hint #7" : "+r"(x30));
+    pc = x30;
+#endif
+#endif // SENTRY_ADDED
   }
   return pc;
 }
